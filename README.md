@@ -48,3 +48,98 @@ project/
     ```
     您将看到两个并发启动：Web 后台将部署在 3000 端口，而单独的定时 Worker 进程将初始化 DB 并在挂机时持续通过长连接扫描记录信号并推送通知。
 5.  **访问后台**: 打开 `http://localhost:3000` 进入前端监控控制面板修改配置和检查统计日志。
+
+## 服务器部署（推荐方案）
+
+### 1) 选什么系统？
+
+建议优先选 **Ubuntu Server 22.04 LTS / 24.04 LTS（x86_64）**，原因：
+
+* LTS 版本维护周期长，稳定性更适合长期跑交易监控。
+* Node.js、PM2、Nginx、SQLite 等依赖安装资料最全，出问题也最好排查。
+* 社区对 Next.js + Node 的部署经验最成熟。
+
+> 不建议新手一上来选 Alpine 这类极简系统，会增加 native 依赖（如 `better-sqlite3`）编译与排错成本。
+
+---
+
+### 2) 服务器最低配置建议
+
+* **2 vCPU / 4GB RAM / 40GB SSD**（小规模监控够用）
+* 若并发币种多、AI 调用频繁，建议 **4 vCPU / 8GB RAM**
+
+---
+
+### 3) 一键式部署步骤（Ubuntu）
+
+#### Step A. 安装 Node.js 20 + 基础工具
+
+```bash
+sudo apt update
+sudo apt install -y curl git build-essential nginx
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+node -v
+npm -v
+```
+
+#### Step B. 拉代码并安装依赖
+
+```bash
+git clone <your-repo-url> /opt/crypto-signal-monitor
+cd /opt/crypto-signal-monitor
+npm ci
+cp .env.example .env
+```
+
+编辑 `.env` 填好 API Key（OpenAI/DeepSeek/Telegram 等）。
+
+#### Step C. 构建并用 PM2 守护进程
+
+```bash
+npm run build
+sudo npm install -g pm2
+pm2 start "npm run start" --name crypto-monitor
+pm2 save
+pm2 startup
+```
+
+> `npm run start` 会同时启动 Next 服务和 worker（由 `concurrently` 管理）。
+
+#### Step D. 配置 Nginx 反向代理（可选但推荐）
+
+创建 `/etc/nginx/sites-available/crypto-monitor`：
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+启用并重载：
+
+```bash
+sudo ln -s /etc/nginx/sites-available/crypto-monitor /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+---
+
+### 4) 生产环境建议
+
+* 用 HTTPS（可配 `certbot`）。
+* 只开放 22/80/443 端口，关闭无关端口。
+* 定期备份 `crypto_monitor.sqlite`。
+* 给 `.env` 设置最小权限：`chmod 600 .env`。
+* 用 `pm2 logs crypto-monitor` 持续观察 API 限速和 Telegram 发送状态。
