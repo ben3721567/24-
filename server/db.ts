@@ -93,6 +93,7 @@ export function log(level: 'INFO' | 'WARN' | 'ERROR', message: string) {
 const defaultConfigs: Record<string, string> = {
   topN: '20',
   scanIntervalMin: '5',
+  scanMaxConcurrency: '3',
   aiProvider: 'gpt', // gpt, deepseek, both
   aiThreshold: '70',
   vwapFilter: 'true',
